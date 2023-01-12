@@ -88,8 +88,10 @@ def piscadaWebSocketGet(timeStart, tagName):
         data = {'timeseries':[], 'values':[]}
 
         if len(response)==0:
-            info_lock.acquire()
+            store_lock.acquire()
             faulty_tags_list.append(tagName)
+            store_lock.release
+            info_lock.acquire()
             info["fault"] += 1
             info_lock.release()
         else:
@@ -132,7 +134,7 @@ def getSeries(settings):
         
 
 
-def saver(sleep_minutes = 5):
+def saver(sleep_minutes = 10):
     xRun = run
     while xRun:
         sleep(sleep_minutes*60)
@@ -164,6 +166,14 @@ def save():
         except:
             f= open("completed.json",'x')
         f.write(dumps(completed_tags_list))
+        f.close()
+
+        #Save completed jobs
+        try:
+            f= open("faulty.json",'w')
+        except:
+            f= open("faulty.json",'x')
+        f.write(dumps(faulty_tags_list))
         f.close()
         store_lock.release()
 

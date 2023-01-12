@@ -4,7 +4,7 @@ from time import sleep
 from threading import Thread, Lock
 from datetime import datetime
 from sys import stdout
-
+from time import time
 info_lock = Lock()
 info = {"tags":0, "completed":0, "fault":0, "status":"waiting", "saverStatus":"waiting"}
 
@@ -76,7 +76,14 @@ def downloader(timeStart, tags):
 def piscadaWebSocketGet(timeStart, tagName):
     if tagName in completed_tags_list:
         store_lock.acquire()
-        data = previous_data.pop(tagName)
+        try:
+            data_to_store[tagName] = previous_data.pop(tagName)
+        except:
+            faulty_tags_list.append(tagName)
+            info_lock.acquire()
+            info["fault"] += 1
+            info_lock.release()
+        store_lock.release()
     else:
         info_lock.acquire()
         info["status"] = "Collecting " + tagName
@@ -105,9 +112,8 @@ def piscadaWebSocketGet(timeStart, tagName):
                 data['values'].append(point['v'])
         store_lock.acquire()
         completed_tags_list.append(tagName)
-    
-    data_to_store[tagName] = data
-    store_lock.release()
+        data_to_store[tagName] = data
+        store_lock.release()
 
     info_lock.acquire()
     info["completed"] += 1
@@ -180,6 +186,7 @@ def save():
 
 def agent():
     xRun = run
+    start_time = time()
     while xRun:
         sleep(0.5)
         
@@ -192,6 +199,9 @@ def agent():
         print(progressString(percent = int((ainfo["completed"]/ainfo["tags"])*100), name="Progress       "))
         print("Status: " + ainfo["status"])
         print("Saver: "  + ainfo["saverStatus"])
+        print("time elapsed: " + str(int(time()-start_time)) + "s")
+        stdout.write("\033[F")
+        stdout.write("\033[F")
         stdout.write("\033[F")
         stdout.write("\033[F")
         

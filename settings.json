@@ -1,5 +1,6 @@
-{"time_start": "2022-01-01T00:00", 
+{"timeStart": "2022-01-01T00:00", 
 "series": {
+    "enable" : false,
     "series_start":"001",
     "series_end":"041",
     "system_prefix": "A_563001_RT",
@@ -8,5 +9,24 @@
     "temp_sp_act_end": "_Stp_act",
     "heat_output_end":"_Heat_Ind"
 },
-"tags":[]
+"tags":[
+    "3604_EAFanLvl",
+    "3604_SAFanLvl",
+    "3604_ExtTemp",
+    "3604_EATemp",
+    "3604_ActTempStp",
+    "3604_OutTemp",
+    "3604_FrostTemp",
+    "3604_SATemp",
+    "3604_HeatLvl",
+    "3604_DamperExt",
+    "3604_DamperIn",
+    "3604_EAFlow",
+    "3604_SAFlow",
+    "3604_HRLvl",
+    "3604_HREff",
+    "A_563001_Booking_3604",
+    "3604_ActOpMode",
+    "3604_SFP"
+]
 }

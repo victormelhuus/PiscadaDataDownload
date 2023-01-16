@@ -6,6 +6,7 @@ from datetime import datetime
 from sys import stdout
 from time import time
 from math import floor
+from os import path
 info_lock = Lock()
 info = {"tags":0, "completed":0, "fault":0, "status":"waiting", "saverStatus":"waiting"}
 
@@ -28,28 +29,24 @@ def main():
     seriesSettings = settings["series"]
 
     #Open previous data
-    try:
-        f = open("data.json",'w')
-    except:
-        f = open("data.json",'x')
-
-    try:
+    if path.exists("data.json"):
+        f = open("data.json")
         previous_data = loads(f.read())
-    except:
-        previous_data = dict()
-    f.close()
+        f.close()
+    else:
+        f = open("data.json",'x')
+        f.close()
 
     #Open previously completed list
-    try:
-        f= open("completed.json",'w')
-    except:
-        f= open("completed.json",'x')
-    
-    try:
+    if path.exists("completed.json"):
+        f = open("completed.json")
         completed_tags_list = loads(f.read())
-    except:
+        f.close()
+    else:
+        f = open("completed.json",'x')
         completed_tags_list = list()
-    f.close() 
+        f.close()
+
 
     #Find out what to download
     if seriesSettings['enable']:
@@ -60,20 +57,31 @@ def main():
     for tag in settings['tags']:
         tags.append(tag)
     
+    
+
+    print("Completed " + str(completed_tags_list))
+    for tag in completed_tags_list:
+        if tag in previous_data.keys() and tag in tags:
+            print("Allready downloaded " + tag)
+            data_to_store[tag] = previous_data.pop(tag)
+            tags.remove(tag)
+            
+    
+    print("Will download: " + str(tags))
     info["tags"] = len(tags)
 
-    print(completed_tags_list)
+    sleep(10)
 
     #Start download and agent
     downloaderThread = Thread(target= downloader, args= (timeStart, tags))
     agentThread = Thread(target = agent)
-    saverThread = Thread(target = saver)
+    #saverThread = Thread(target = saver)
     downloaderThread.start()
     agentThread.start()
-    saverThread.start()
+    #saverThread.start()
     downloaderThread.join()
     agentThread.join()
-    saverThread.join()
+    #saverThread.join()
     save()
 
     
@@ -130,9 +138,9 @@ def piscadaWebSocketGet(timeStart, tagName):
 
     info_lock.acquire()
     info["completed"] += 1
-    info["status"] = "Done "
+    info["status"] = "Saving " + tagName
     info_lock.release()
-    #save()
+    save()
    
 
 def generateSeries(start:str,end:str):

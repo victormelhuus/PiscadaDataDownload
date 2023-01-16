@@ -5,6 +5,7 @@ from threading import Thread, Lock
 from datetime import datetime
 from sys import stdout
 from time import time
+from math import floor
 info_lock = Lock()
 info = {"tags":0, "completed":0, "fault":0, "status":"waiting", "saverStatus":"waiting"}
 
@@ -20,7 +21,7 @@ save_data = dict()
 previous_data = dict()
 
 def main():
-    f = open("settings.json")
+    f = open("settings.json",'r')
     settings = loads(f.read())
     f.close()
     timeStart = settings["timeStart"]
@@ -31,7 +32,11 @@ def main():
         f = open("data.json",'w')
     except:
         f = open("data.json",'x')
-    previous_data = loads(f.read())
+
+    try:
+        previous_data = loads(f.read())
+    except:
+        previous_data = dict()
     f.close()
 
     #Open previously completed list
@@ -39,17 +44,25 @@ def main():
         f= open("completed.json",'w')
     except:
         f= open("completed.json",'x')
-    completed_tags_list = loads(f.read())
+    
+    try:
+        completed_tags_list = loads(f.read())
+    except:
+        completed_tags_list = list()
     f.close() 
 
     #Find out what to download
-    tags = getSeries(seriesSettings)
+    if seriesSettings['enable']:
+        tags = getSeries(seriesSettings)
+    else:
+        tags = list()
 
     for tag in settings['tags']:
         tags.append(tag)
     
     info["tags"] = len(tags)
 
+    print(completed_tags_list)
 
     #Start download and agent
     downloaderThread = Thread(target= downloader, args= (timeStart, tags))
@@ -61,8 +74,8 @@ def main():
     downloaderThread.join()
     agentThread.join()
     saverThread.join()
-
     save()
+
     
     
 def downloader(timeStart, tags):
@@ -117,7 +130,9 @@ def piscadaWebSocketGet(timeStart, tagName):
 
     info_lock.acquire()
     info["completed"] += 1
+    info["status"] = "Done "
     info_lock.release()
+    #save()
    
 
 def generateSeries(start:str,end:str):
@@ -140,7 +155,7 @@ def getSeries(settings):
         
 
 
-def saver(sleep_minutes = 10):
+def saver(sleep_minutes = 1):
     xRun = run
     while xRun:
         sleep(sleep_minutes*60)
@@ -158,29 +173,33 @@ def saver(sleep_minutes = 10):
 
 def save():
         #Save downloaded data
+        
         store_lock.acquire()
-        try:
-            f = open("data.json",'w')
-        except:
-            f = open("data.json",'x')
-        f.write(dumps(data_to_store))
-        f.close()
+        if len(completed_tags_list) > 0:
+            try:
+                f = open("data.json",'w')
+            except:
+                f = open("data.json",'x')
+            f.write(dumps(data_to_store))
+            f.close()
 
         #Save completed jobs
-        try:
-            f= open("completed.json",'w')
-        except:
-            f= open("completed.json",'x')
-        f.write(dumps(completed_tags_list))
-        f.close()
+        if len(completed_tags_list) > 0:
+            try:
+                f= open("completed.json",'w')
+            except:
+                f= open("completed.json",'x')
+            f.write(dumps(completed_tags_list))
+            f.close()
 
-        #Save completed jobs
-        try:
-            f= open("faulty.json",'w')
-        except:
-            f= open("faulty.json",'x')
-        f.write(dumps(faulty_tags_list))
-        f.close()
+        #Save faulty jobs
+        if len(faulty_tags_list) > 0:
+            try:
+                f= open("faulty.json",'w')
+            except:
+                f= open("faulty.json",'x')
+            f.write(dumps(faulty_tags_list))
+            f.close()
         store_lock.release()
 
 
@@ -197,14 +216,21 @@ def agent():
 
         #Print
         print(progressString(percent = int((ainfo["completed"]/ainfo["tags"])*100), name="Progress       "))
+        print("Collected: " +str(ainfo["completed"]) + "/" + str(ainfo["tags"]))
         print("Status: " + ainfo["status"])
         print("Saver: "  + ainfo["saverStatus"])
-        print("time elapsed: " + str(int(time()-start_time)) + "s")
+        elapsed = int(time()-start_time)
+        if elapsed < 60:
+            print("time elapsed: " + str(elapsed) + "s")
+        else:
+            minutes = floor(elapsed/60)
+            seconds = elapsed - minutes*60
+            print("time elapsed: " + str(minutes) + " minutes and " + str(seconds) + "s")
         stdout.write("\033[F")
         stdout.write("\033[F")
         stdout.write("\033[F")
         stdout.write("\033[F")
-        
+        stdout.write("\033[F")
         run_lock.acquire()
         xRun = run
         run_lock.release()

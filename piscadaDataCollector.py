@@ -6,20 +6,14 @@ from datetime import datetime
 from sys import stdout
 from time import time
 from math import floor
-from os import path
+from os import chdir, mkdir, listdir
 info_lock = Lock()
 info = {"tags":0, "completed":0, "fault":0, "status":"waiting", "saverStatus":"waiting"}
 
 run = True
 run_lock = Lock()
 
-store_lock = Lock()
-data_to_store = {}
-
 faulty_tags_list = []
-completed_tags_list = []
-save_data = dict()
-previous_data = dict()
 
 def main():
     f = open("settings.json",'r')
@@ -28,119 +22,96 @@ def main():
     timeStart = settings["timeStart"]
     seriesSettings = settings["series"]
 
-    #Open previous data
-    if path.exists("data.json"):
-        f = open("data.json")
-        previous_data = loads(f.read())
-        f.close()
-    else:
-        f = open("data.json",'x')
-        f.close()
-
-    #Open previously completed list
-    if path.exists("completed.json"):
-        f = open("completed.json")
-        completed_tags_list = loads(f.read())
-        f.close()
-    else:
-        f = open("completed.json",'x')
-        completed_tags_list = list()
-        f.close()
-
+    #Check if we have previous data
+    try: files = listdir("data")
+    except: mkdir("data")
+    chdir("data")
+    cache = []
+    for file in files: cache.append(file.split(".")[0]) 
 
     #Find out what to download
-    if seriesSettings['enable']:
-        tags = getSeries(seriesSettings)
-    else:
-        tags = list()
+    if seriesSettings['enable']: tags = getSeries(seriesSettings)
+    else: tags = list()
 
-    for tag in settings['tags']:
-        tags.append(tag)
-    
-    
-
-    print("Completed " + str(completed_tags_list))
-    for tag in completed_tags_list:
-        if tag in previous_data.keys() and tag in tags:
-            print("Allready downloaded " + tag)
-            data_to_store[tag] = previous_data.pop(tag)
-            tags.remove(tag)
-            
-    
-    print("Will download: " + str(tags))
+    for tag in settings['tags']: tags.append(tag)
     info["tags"] = len(tags)
+
+    #Remove what we already have downloaded
+    removed = []
+    for tag in cache:
+        if tag in tags: 
+            tags.remove(tag)
+            removed.append(tag)
+
+    completed = len(removed)
+
+    if completed > 0:
+        print("Previously completed: " + str(removed))
+
+    info["completed"] = len(removed)        
+    print("Will download: " + str(tags))
 
     sleep(10)
 
     #Start download and agent
     downloaderThread = Thread(target= downloader, args= (timeStart, tags))
     agentThread = Thread(target = agent)
-    #saverThread = Thread(target = saver)
     downloaderThread.start()
     agentThread.start()
-    #saverThread.start()
     downloaderThread.join()
     agentThread.join()
-    #saverThread.join()
-    save()
 
     
     
 def downloader(timeStart, tags):
     for tag in tags:
         piscadaWebSocketGet(timeStart, tag)
+
+    if len(faulty_tags_list) >0: saveData("faulty_tags", faulty_tags_list)
+
     run_lock.acquire()
     run = False
     run_lock.release()
 
 
 def piscadaWebSocketGet(timeStart, tagName):
-    if tagName in completed_tags_list:
-        store_lock.acquire()
-        try:
-            data_to_store[tagName] = previous_data.pop(tagName)
-        except:
-            faulty_tags_list.append(tagName)
-            info_lock.acquire()
-            info["fault"] += 1
-            info_lock.release()
-        store_lock.release()
-    else:
-        info_lock.acquire()
-        info["status"] = "Collecting " + tagName
-        info_lock.release()
+    info_lock.acquire()
+    info["status"] = "Collecting " + tagName
+    info_lock.release()
 
-        api_url = "http://localhost:3134/timeseries/" + tagName + "?from=" + timeStart + "&intervall=1m"
-        response = get(api_url).json()
+    api_url = "http://localhost:3134/timeseries/" + tagName + "?from=" + timeStart + "&intervall=1m"
+    response = get(api_url).json()
+    
+    data = {'timeseries':[], 'values':[]}
+
+    
+    info_lock.acquire()
+    info["status"] = "Restructuring and converting " + tagName
+    info_lock.release()
+
+    i = 0
+    isZero = True
+    for point in response:
+        i += 1
+        if point['v'] > 0: isZero = False
+        newTime = datetime.strptime(point['ts'],"%Y-%m-%dT%H:%M:%S.%f").replace(microsecond=0)
+        data['timeseries'].append(newTime.strftime("%Y-%m-%dT%H:%M:%S"))
+        data['values'].append(point['v'])
         
-        data = {'timeseries':[], 'values':[]}
-
-        if len(response)==0:
-            store_lock.acquire()
-            faulty_tags_list.append(tagName)
-            store_lock.release
-            info_lock.acquire()
-            info["fault"] += 1
-            info_lock.release()
-        else:
-            info_lock.acquire()
-            info["status"] = "Restructuring and converting " + tagName
-            info_lock.release()
-
-            for point in response:
-                newTime = datetime.strptime(point['ts'],"%Y-%m-%dT%H:%M:%S.%f").replace(microsecond=0)
-                data['timeseries'].append(newTime.strftime("%Y-%m-%dT%H:%M:%S"))
-                data['values'].append(point['v'])
-        store_lock.acquire()
-        completed_tags_list.append(tagName)
-        data_to_store[tagName] = data
-        store_lock.release()
 
     info_lock.acquire()
-    info["completed"] += 1
-    info["status"] = "Saving " + tagName
-    info_lock.release()
-    save()
+    if isZero:
+        faulty_tags_list.append(tagName)
+        info["completed"] += 1
+        info["fault"] += 1
+        info["status"] = "Saving " + tagName
+        info_lock.release()
+    else:
+        info["completed"] += 1
+        info["status"] = "Saving " + tagName
+        info_lock.release()
+        saveData(tagName,data)
+    
    
 
 def generateSeries(start:str,end:str):
@@ -152,63 +123,17 @@ def generateSeries(start:str,end:str):
     return series
 
 def getSeries(settings):
-    rooms = generateSeries(settings["series_start"], settings["series_end"])
+    #rooms = generateSeries(settings["series_start"], settings["series_end"])
+    rooms = settings["rooms"]
     series = []
     for room in rooms:
-        series.append(settings["system_prefix"] + room + settings["temp_end"])
-        series.append(settings["system_prefix"] + room + settings["temp_sp_end"])
-        series.append(settings["system_prefix"] + room + settings["temp_sp_act_end"])
-        series.append(settings["system_prefix"] + room + settings["heat_output_end"])
+        series.append(settings["system_prefix"] + "RT01_ " + room + "_MV")
+        series.append(settings["system_prefix"] + "RT01_ " + room + "_SPK")
+        series.append(settings["system_prefix"] + "KA01_ " + room + "_C")
+        series.append(settings["system_prefix"] + "RY01_ " + room + "_MV")
+        series.append(settings["system_prefix"] + "SQ401_ " + room + "C")
     return series
         
-
-
-def saver(sleep_minutes = 1):
-    xRun = run
-    while xRun:
-        sleep(sleep_minutes*60)
-        run_lock.acquire()
-        xRun = run
-        run_lock.release()
-        if xRun:
-            info_lock.acquire()
-            info["saverStatus"] = "Saving"
-            info_lock.release()
-            save()
-            info_lock.acquire()
-            info["saverStatus"] = "Waiting"
-            info_lock.release()
-
-def save():
-        #Save downloaded data
-        
-        store_lock.acquire()
-        if len(completed_tags_list) > 0:
-            try:
-                f = open("data.json",'w')
-            except:
-                f = open("data.json",'x')
-            f.write(dumps(data_to_store))
-            f.close()
-
-        #Save completed jobs
-        if len(completed_tags_list) > 0:
-            try:
-                f= open("completed.json",'w')
-            except:
-                f= open("completed.json",'x')
-            f.write(dumps(completed_tags_list))
-            f.close()
-
-        #Save faulty jobs
-        if len(faulty_tags_list) > 0:
-            try:
-                f= open("faulty.json",'w')
-            except:
-                f= open("faulty.json",'x')
-            f.write(dumps(faulty_tags_list))
-            f.close()
-        store_lock.release()
 
 
 def agent():
@@ -243,7 +168,6 @@ def agent():
         xRun = run
         run_lock.release()
 
-
 def progressString(percent=0, width=40, name = "progress",end=""):
     left = width * percent // 100
     right = width - left
@@ -252,5 +176,15 @@ def progressString(percent=0, width=40, name = "progress",end=""):
     spaces = " " * right
     percents = f"{percent:.0f}%"
     return name+": " + "[" + tags + spaces + "]" + percents +end
+
+def saveData(tagname, data):
+    try:
+        f = open(tagname + ".json",'w')
+    except:
+        f = open(tagname + ".json",'x')
+    f.write(dumps(data))
+    f.close()
+
+
 
 main()

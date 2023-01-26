@@ -8,14 +8,19 @@ from time import time
 from math import floor
 from os import chdir, mkdir, listdir
 info_lock = Lock()
-info = {"tags":0, "completed":0, "fault":0, "status":"waiting", "saverStatus":"waiting"}
+info = {"tags":0, "completed":0, "fault":0, "status 1":"waiting","status 2":"waiting", "saverStatus":"waiting"}
 
 run = True
 run_lock = Lock()
 
+tags_lock = Lock()
 faulty_tags_list = []
+tags = []
+com_lock = Lock()
+save_lock = Lock()
 
 def main():
+    print("Starting...")
     f = open("settings.json",'r')
     settings = loads(f.read())
     f.close()
@@ -23,15 +28,19 @@ def main():
     seriesSettings = settings["series"]
 
     #Check if we have previous data
-    try: files = listdir("data")
+    cache = []
+    try: 
+        files = listdir("data")
+        for file in files: 
+            cache.append(file.split(".")[0]) 
     except: mkdir("data")
     chdir("data")
-    cache = []
-    for file in files: cache.append(file.split(".")[0]) 
-
+    
     #Find out what to download
-    if seriesSettings['enable']: tags = getSeries(seriesSettings)
-    else: tags = list()
+    if seriesSettings['enable']: 
+        series = getSeries(settings)
+        for tag in series:
+            tags.append(tag)
 
     for tag in settings['tags']: tags.append(tag)
     info["tags"] = len(tags)
@@ -54,39 +63,58 @@ def main():
     sleep(10)
 
     #Start download and agent
-    downloaderThread = Thread(target= downloader, args= (timeStart, tags))
+    downloaderThread1 = Thread(target= downloader, args= (timeStart, 1))
+    downloaderThread2 = Thread(target= downloader, args= (timeStart, 2))
     agentThread = Thread(target = agent)
-    downloaderThread.start()
+    print("Starting threads")
+    downloaderThread1.start()
+    downloaderThread2.start()
     agentThread.start()
-    downloaderThread.join()
+    downloaderThread1.join()
+    downloaderThread2.join()
     agentThread.join()
 
-    
-    
-def downloader(timeStart, tags):
-    for tag in tags:
-        piscadaWebSocketGet(timeStart, tag)
-
     if len(faulty_tags_list) >0: saveData("faulty_tags", faulty_tags_list)
+
+    
+    
+def downloader(timeStart, ID):
+    print("Thread " + str(ID) +" starting")
+    while True:
+        tags_lock.acquire()
+        if len(tags) > 0:
+            tag = tags.pop()
+            tags_lock.release()
+            piscadaWebSocketGet(timeStart, tag, ID)
+        else:
+            print("Thread " + str(ID) +" found no tags")
+            tags_lock.release()
+            break        
 
     run_lock.acquire()
     run = False
     run_lock.release()
+    print("Thread " + str(ID) +" exiting")
 
 
-def piscadaWebSocketGet(timeStart, tagName):
+def piscadaWebSocketGet(timeStart, tagName, ID):
+    api_url = "http://localhost:3134/timeseries/" + tagName + "?from=" + timeStart + "&intervall=1m"
     info_lock.acquire()
-    info["status"] = "Collecting " + tagName
+    info["status " + str(ID)] = "Waiting to download " + tagName
     info_lock.release()
 
-    api_url = "http://localhost:3134/timeseries/" + tagName + "?from=" + timeStart + "&intervall=1m"
+    com_lock.acquire()
+    info_lock.acquire()
+    info["status " + str(ID)] = "Downloading " + tagName
+    info_lock.release()
     response = get(api_url).json()
-    
+    com_lock.release()
+
     data = {'timeseries':[], 'values':[]}
 
     
     info_lock.acquire()
-    info["status"] = "Restructuring and converting " + tagName
+    info["status " + str(ID)] = "Restructuring and converting " + tagName
     info_lock.release()
 
     i = 0
@@ -104,13 +132,18 @@ def piscadaWebSocketGet(timeStart, tagName):
         faulty_tags_list.append(tagName)
         info["completed"] += 1
         info["fault"] += 1
-        info["status"] = "Saving " + tagName
+        info["status " + str(ID)] = "Saving " + tagName
         info_lock.release()
     else:
         info["completed"] += 1
-        info["status"] = "Saving " + tagName
+        info["status " + str(ID)] = "Waiting to save " + tagName
+        info_lock.release()
+        save_lock.acquire()
+        info_lock.acquire()
+        info["status " + str(ID)] = "Saving " + tagName
         info_lock.release()
         saveData(tagName,data)
+        save_lock.release()
     
    
 
@@ -124,14 +157,15 @@ def generateSeries(start:str,end:str):
 
 def getSeries(settings):
     #rooms = generateSeries(settings["series_start"], settings["series_end"])
+    seriesSettings = settings["series"]
     rooms = settings["rooms"]
     series = []
     for room in rooms:
-        series.append(settings["system_prefix"] + "RT01_ " + room + "_MV")
-        series.append(settings["system_prefix"] + "RT01_ " + room + "_SPK")
-        series.append(settings["system_prefix"] + "KA01_ " + room + "_C")
-        series.append(settings["system_prefix"] + "RY01_ " + room + "_MV")
-        series.append(settings["system_prefix"] + "SQ401_ " + room + "C")
+        series.append(seriesSettings["system_prefix"] + "RT01_" + room + "_MV")
+        series.append(seriesSettings["system_prefix"] + "RT01_" + room + "_SPK")
+        series.append(seriesSettings["system_prefix"] + "KA01_" + room + "_C")
+        series.append(seriesSettings["system_prefix"] + "RY01_" + room + "_MV")
+        series.append("LS_N_360_002_SQ401_" + room + "_C")
     return series
         
 
@@ -150,8 +184,9 @@ def agent():
         #Print
         print(progressString(percent = int((ainfo["completed"]/ainfo["tags"])*100), name="Progress       "))
         print("Collected: " +str(ainfo["completed"]) + "/" + str(ainfo["tags"]))
-        print("Status: " + ainfo["status"])
-        print("Saver: "  + ainfo["saverStatus"])
+        print("Status T1: " + ainfo["status 1"])
+        print("Status T2: " + ainfo["status 2"])
+        print("Faulty: "  + str(ainfo["fault"]))
         elapsed = int(time()-start_time)
         if elapsed < 60:
             print("time elapsed: " + str(elapsed) + "s")
@@ -159,11 +194,6 @@ def agent():
             minutes = floor(elapsed/60)
             seconds = elapsed - minutes*60
             print("time elapsed: " + str(minutes) + " minutes and " + str(seconds) + "s")
-        stdout.write("\033[F")
-        stdout.write("\033[F")
-        stdout.write("\033[F")
-        stdout.write("\033[F")
-        stdout.write("\033[F")
         run_lock.acquire()
         xRun = run
         run_lock.release()

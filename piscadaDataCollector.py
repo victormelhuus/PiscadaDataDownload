@@ -159,6 +159,7 @@ def getSeries(settings):
     #rooms = generateSeries(settings["series_start"], settings["series_end"])
     seriesSettings = settings["series"]
     rooms = settings["rooms"]
+    vents = settings['vents']
     series = []
     for room in rooms:
         series.append(seriesSettings["system_prefix"] + "RT01_" + room + "_MV")
@@ -166,7 +167,23 @@ def getSeries(settings):
         series.append(seriesSettings["system_prefix"] + "KA01_" + room + "_C")
         series.append(seriesSettings["system_prefix"] + "RY01_" + room + "_MV")
         series.append("LS_N_360_002_SQ401_" + room + "_C")
+    prefix = "LS_N_360_"
+    for vent in vents:
+        series.append(prefix+vent+"_AI_ExtractAirTemp")
+        series.append(prefix+vent+"_AI_SupplyAirTemp")
+        series.append(prefix+vent+"_AI_SupplyPID_SetP")
+        series.append(prefix+vent+"_AI_IntakeAirTemp")
+        series.append(prefix+vent+"_AI_IntakeAirTemp")
+        series.append(prefix+vent+"_AI_EfficiencyTemp")
+        series.append(prefix+vent+"_EAF")
+        series.append(prefix+vent+"_SAF")
+        series.append(prefix+vent+"_AO_ChangeOver1")
+        series.append(prefix+vent+"_AO_SeqY2")
+        series.append(prefix+vent+"_EnergyHeaterPwr")
+        series.append(prefix+vent+"_AI_EAFFlow")
+        series.append(prefix+vent+"_AI_SAFFlow")
     return series
+
         
 
 

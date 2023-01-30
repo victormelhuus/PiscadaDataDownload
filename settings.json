@@ -5,5 +5,6 @@
 },
 "rooms":[],
 "vents": ["001", "002", "003"],
-"tags":["LS_N_320_002_OE001_kw", "LS_N_320_001_OE001_kw", "LS_N_320_002_RT090_MV"]
+"tags":["LS_N_320_002_OE001_kw", "LS_N_320_001_OE001_kw", "LS_N_320_002_RT090_MV"],
+"skip": ["LS_N_360_001_AO_ChangeOver1", "LS_N_360_002_AO_ChangeOver1", "LS_N_360_003_AO_ChangeOver1"]
 }

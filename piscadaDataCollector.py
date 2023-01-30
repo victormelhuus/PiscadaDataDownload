@@ -52,10 +52,19 @@ def main():
             tags.remove(tag)
             removed.append(tag)
 
+    skipped = []
+    skips = settings['skip']
+    for tag in skips:
+        if tag in tags:
+            tags.remove(tag)
+            skipped.append(tag)
     completed = len(removed)
 
     if completed > 0:
         print("Previously completed: " + str(removed))
+
+    if len(skipped) > 0:
+        print("Skipping these tags: " + str(skipped))
 
     info["completed"] = len(removed)        
     print("Will download: " + str(tags))
